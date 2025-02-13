@@ -1,7 +1,7 @@
 import { useParams, Link } from 'react-router-dom'
 import { useAppSelector } from '@/app/hooks'
 import { selectPostById } from './postsSlice'
-import { PostAuthor } from './postAuthor'
+import { PostAuthor } from './PostAuthor'
 import { selectCurrentUsername } from '../auth/authSlice'
 
 export const SinglePostPage = () => {

@@ -1,7 +1,7 @@
 import { Link } from 'react-router-dom'
 import { useAppSelector } from '@/app/hooks'
 import { selectAllPosts } from './postsSlice'
-import { PostAuthor } from './postAuthor'
+import { PostAuthor } from './PostAuthor'
 import { ReactionButtons } from './ReactionButtons'
 
 export const PostsList = () => {
