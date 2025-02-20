@@ -1,11 +1,17 @@
-import { createSlice } from '@reduxjs/toolkit'
 import { PayloadAction } from '@reduxjs/toolkit'
 import { nanoid } from 'nanoid'
 import type { RootState } from '@/app/store'
-import { sub } from 'date-fns' 
-import { userLoggedOut } from '@/features/auth/authSlice'
+import { sub } from 'date-fns'
+import { logout } from '@/features/auth/authSlice'
 import { client } from '@/api/client'
 import { createAppAsyncThunk } from '@/app/withTypes'
+import {
+  createEntityAdapter,
+  EntityState,
+  createSlice, createSelector
+  // omit other imports
+} from '@reduxjs/toolkit'
+import { AppStartListening } from '@/app/listenerMiddleware'
 
 export interface Reactions {
   thumbsUp: number
@@ -22,8 +28,8 @@ export interface Post {
   id: string
   title: string
   content: string
-  user:string
-  date:string
+  user: string
+  date: string
   reactions: Reactions
 }
 
@@ -35,14 +41,8 @@ const initialReactions: Reactions = {
   eyes: 0
 }
 
-interface PostsState {
-  posts: Post[]
-  status: 'idle' | 'pending' | 'succeeded' | 'failed'
-  error: string | null
-}
-
 export const fetchPosts = createAppAsyncThunk(
-  'posts/fetchPosts', 
+  'posts/fetchPosts',
   async () => {
     const response = await client.get<Post[]>('/fakeApi/posts')
     return response.data
@@ -57,11 +57,20 @@ export const fetchPosts = createAppAsyncThunk(
   }
 )
 
-const initialState: PostsState = {
-  posts: [],
+interface PostsState extends EntityState<Post, string> {
+  status: 'idle' | 'pending' | 'succeeded' | 'rejected'
+  error: string | null
+}
+
+const postsAdapter = createEntityAdapter<Post>({
+  // Sort in descending date order
+  sortComparer: (a, b) => b.date.localeCompare(a.date)
+})
+
+const initialState: PostsState = postsAdapter.getInitialState({
   status: 'idle',
   error: null
-}
+})
 
 type PostUpdate = Pick<Post, 'id' | 'title' | 'content' | 'user'>
 type NewPost = Pick<Post, 'title' | 'content' | 'user'>
@@ -76,8 +85,6 @@ export const addNewPost = createAppAsyncThunk(
     return response.data
   }
 )
-
-
 // Create an initial state value for the reducer, with that type
 /* const initialState: Post[] = [
   { id: '1', title: 'First Post!', content: 'Hello!', user: '0', date: sub(new Date(), { minutes: 10 }).toISOString(), reactions: initialReactions },
@@ -89,39 +96,16 @@ const postsSlice = createSlice({
   name: 'posts',
   initialState,
   reducers: {
-    postAdded: {
-      reducer(state, action: PayloadAction<Post>) {
-        state.posts.push(action.payload)
-      },
-      prepare(title: string, content: string, userId: string) {
-        return {
-          payload: { 
-            id: nanoid(),
-            date: new Date().toISOString(), 
-            title, 
-            content , 
-            user: userId ,
-            reactions: initialReactions
-          }
-        }
-      }
-    },
     postUpdated(state, action: PayloadAction<PostUpdate>) {
-      const { id, title, content, user } = action.payload
-      const existingPost = state.posts.find(post => post.id === id)
-      if (existingPost) {
-        existingPost.title = title
-        existingPost.content = content
-        existingPost.user = user
-        existingPost.date = new Date().toISOString()
-      }
+      const { id, title, content } = action.payload
+      postsAdapter.updateOne(state, { id, changes: { title, content } })
     },
     reactionAdded(
       state,
       action: PayloadAction<{ postId: string; reaction: ReactionName }>
     ) {
       const { postId, reaction } = action.payload
-      const existingPost = state.posts.find(post => post.id === postId)
+      const existingPost = state.entities[postId]
       if (existingPost) {
         existingPost.reactions[reaction]++
       }
@@ -129,26 +113,24 @@ const postsSlice = createSlice({
   },
   extraReducers: (builder) => {
     // Pass the action creator to `builder.addCase()`
-    builder.addCase(userLoggedOut, (state) => {
+    builder.addCase(logout.fulfilled, (state) => {
       // Clear out the list of posts whenever the user logs out
       return initialState
     })
-    .addCase(fetchPosts.pending, (state, action) => {
-      state.status = 'pending'
-    })
-    .addCase(fetchPosts.fulfilled, (state, action) => {
-      state.status = 'succeeded'
-      // Add any fetched posts to the array
-      state.posts.push(...action.payload)
-    })
-    .addCase(fetchPosts.rejected, (state, action) => {
-      state.status = 'failed'
-      state.error = action.error.message ?? 'Unknown Error'
-    })
-    .addCase(addNewPost.fulfilled, (state, action) => {
-      // We can directly add the new post object to our posts array
-      state.posts.push(action.payload)
-    })
+      .addCase(fetchPosts.pending, (state, action) => {
+        state.status = 'pending'
+      })
+      .addCase(fetchPosts.fulfilled, (state, action) => {
+        state.status = 'succeeded'
+        // Add any fetched posts to the array
+        // Save the fetched posts into state
+        postsAdapter.setAll(state, action.payload)
+      })
+      .addCase(fetchPosts.rejected, (state, action) => {
+        state.status = 'rejected'
+        state.error = action.error.message ?? 'Unknown Error'
+      })
+      .addCase(addNewPost.fulfilled, postsAdapter.addOne)
   },
   /* selectors: {
     // Note that these selectors are given just the `PostsState`
@@ -160,13 +142,51 @@ const postsSlice = createSlice({
   } */
 })
 // Export the auto-generated action creator with the same name
-export const { postAdded, postUpdated, reactionAdded } = postsSlice.actions
+export const { postUpdated, reactionAdded } = postsSlice.actions
 // Export the generated reducer function
 export default postsSlice.reducer
 
-export const selectAllPosts = (state: RootState) => state.posts.posts
+// Export the customized selectors for this adapter using `getSelectors`
+export const {
+  selectAll: selectAllPosts,
+  selectById: selectPostById,
+  selectIds: selectPostIds
+  // Pass in a selector that returns the posts slice of state
+} = postsAdapter.getSelectors((state: RootState) => state.posts)
 
-export const selectPostById = (state: RootState, postId: string) => state.posts.posts.find(post => post.id === postId)
+export const selectPostsByUser = createSelector(
+  // Pass in one or more "input selectors"
+  [
+    // we can pass in an existing selector function that
+    // reads something from the root `state` and returns it
+    selectAllPosts,
+    // and another function that extracts one of the arguments
+    // and passes that onward
+    (state: RootState, userId: string) => userId
+  ],
+  // the output function gets those values as its arguments,
+  // and will run when either input value changes
+  (posts, userId) => posts.filter(post => post.user === userId)
+)
 
 export const selectPostsStatus = (state: RootState) => state.posts.status
 export const selectPostsError = (state: RootState) => state.posts.error
+
+export const addPostsListeners = (startAppListening: AppStartListening) => {
+  startAppListening({
+    actionCreator: addNewPost.fulfilled,
+    effect: async (action, listenerApi) => {
+
+      console.log("toasted")
+      const { toast } = await import('react-tiny-toast')
+
+      const toastId = toast.show('New post added!', {
+        variant: 'success',
+        position: 'bottom-right',
+        pause: true
+      })
+      await listenerApi.delay(5000)
+      toast.remove(toastId)
+    }
+  })
+}

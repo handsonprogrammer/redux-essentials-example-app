@@ -1,9 +1,9 @@
-import React,{useState} from 'react'
+import React, { useState } from 'react'
 import { nanoid } from '@reduxjs/toolkit'
 
 import { useAppDispatch, useAppSelector } from '@/app/hooks'
 
-import { type Post, postAdded, addNewPost } from './postsSlice'
+import { type Post, addNewPost } from './postsSlice'
 import { selectAllUsers } from '@/features/users/usersSlice'
 import { selectCurrentUsername } from '../auth/authSlice'
 
@@ -22,8 +22,8 @@ interface AddPostFormElements extends HTMLFormElement {
 export const AddPostForm = () => {
     const [addRequestStatus, setAddRequestStatus] = useState<'idle' | 'pending'>(
         'idle'
-      )
-    
+    )
+
 
     // Get the `dispatch` method from the store
     const dispatch = useAppDispatch()

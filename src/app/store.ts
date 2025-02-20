@@ -3,6 +3,8 @@ import type { Action } from '@reduxjs/toolkit'
 import postsReducer from '@/features/posts/postsSlice'
 import usersReducer from '@/features/users/usersSlice'
 import authReducer from '@/features/auth/authSlice'
+import notificationReducer from '@/features/notifications/notificationsSlice'
+import { listenerMiddleware } from './listenerMiddleware'
 
 export const store = configureStore({
   // Pass in the root reducer setup as the `reducer` argument
@@ -10,8 +12,11 @@ export const store = configureStore({
     // Declare that `state.counter` will be updated by the `counterReducer` function
     posts: postsReducer,
     users: usersReducer,
-    auth: authReducer
-  }
+    auth: authReducer,
+    notifications: notificationReducer
+  },
+  middleware: getDefaultMiddleware =>
+    getDefaultMiddleware().prepend(listenerMiddleware.middleware)
 })
 
 // Infer the type of `store`
